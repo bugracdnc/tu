@@ -41,8 +41,18 @@ func TestNewTuDateFromTimeString(t *testing.T) {
 }
 
 // When given a short bad string, the function should throw an error
-func TestNewTuDateFromString_BadString(t *testing.T) {
+func TestNewTuDateFromString_BadShortString(t *testing.T) {
 	var exampleBadString = "2026-5-22 4:0"
+
+	tuDate, err := NewTuDateFromString(exampleBadString)
+
+	if err == nil {
+		t.Error("NewTuDateFromString should return error, instead it returned: ", tuDate)
+	}
+}
+
+func TestNewTuDateFromString_BadDateString(t *testing.T) {
+	var exampleBadString = "2026-05-22 25:43:35"
 
 	tuDate, err := NewTuDateFromString(exampleBadString)
 
