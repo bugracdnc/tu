@@ -1,2 +1,4 @@
 go.mod
 tu
+data
+data/*
