@@ -23,6 +23,33 @@ func TestNewTuDateFromString(t *testing.T) {
 	}
 }
 
+func TestNewTuDateFromStringWithName(t *testing.T) {
+	date, err := time.Parse("2006-01-02 15:04:05", exampleDateString)
+	name := "testing environment"
+	tuDate, err := NewTuDateFromStringWithName(date.String(), name)
+
+	if err != nil {
+		t.Error(err.Error())
+	}
+
+	if date.Compare(tuDate.Date) != 0 {
+		t.Errorf("got %s want %s", tuDate.Date, date)
+	}
+	if tuDate.Name != name {
+		t.Errorf("got name as %s, want %s", tuDate.Name, name)
+	}
+}
+
+func TestNewTuDateFromStringWithName_BadString(t *testing.T) {
+	var exampleBadString = "2026-5-22 4:0"
+	name := "testing environment"
+	tuDate, err := NewTuDateFromStringWithName(exampleBadString, name)
+
+	if tuDate != nil && err == nil {
+		t.Errorf("got %v, wanted nil", tuDate)
+	}
+}
+
 // When given a proper time string (with zeros in date section)
 // the function should return a date with empty date and valid time
 func TestNewTuDateFromTimeString(t *testing.T) {
@@ -69,5 +96,18 @@ func TestNewTuDateFromDate(t *testing.T) {
 
 	if dateNow != tudate.Date {
 		t.Errorf("got %v want %v", tudate.Date, dateNow)
+	}
+}
+
+func TestNewTuDateFromDateWithName(t *testing.T) {
+	dateNow := time.Now()
+	name := "testing environment"
+	tuDate := NewTuDateFromDateWithName(dateNow, name)
+
+	if dateNow != tuDate.Date {
+		t.Errorf("got %v want %v", tuDate.Date, dateNow)
+	}
+	if tuDate.Name != name {
+		t.Errorf("got name as %s, want %s", tuDate.Name, name)
 	}
 }
