@@ -1,7 +1,6 @@
 package models
 
 import (
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,7 +14,7 @@ type TuDate struct {
 
 func NewTuDateFromString(dateStr string) (*TuDate, error) {
 	if len(dateStr) > 19 {
-		return nil, errors.New("Error: Date string too long")
+		dateStr = dateStr[0:19]
 	}
 
 	var tmp TuDate
