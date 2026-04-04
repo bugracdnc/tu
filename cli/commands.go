@@ -1,13 +1,14 @@
 package cli
 
 import (
-	"fmt"
 	"log"
+	"strings"
+	"tu/db"
 
 	"github.com/spf13/cobra"
 )
 
-var date string
+var storage *db.Storage
 
 var rootCmd = &cobra.Command{
 	Use:   "tu",
@@ -17,7 +18,8 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-func Execute() {
+func Execute(_storage *db.Storage) {
+	storage = _storage
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatal(err)
 	}
@@ -30,7 +32,9 @@ func init() {
 			Short:   "Track a date",
 			Example: "tu track 2026-05-22\ntu track 2026-05-22 16:13:22",
 			Run: func(cmd *cobra.Command, args []string) {
-				fmt.Println(args)
+				if err := addToList(storage, strings.Join(args, " ")); err != nil {
+					log.Println("Error: ", err.Error())
+				}
 			},
 		},
 		{
@@ -38,7 +42,7 @@ func init() {
 			Short:   "Show the list",
 			Example: "tu list",
 			Run: func(cmd *cobra.Command, args []string) {
-				fmt.Println(args)
+				printList(*storage)
 			},
 		},
 	}
