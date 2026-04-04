@@ -31,7 +31,7 @@ func (s *Storage) Load() error {
 			os.MkdirAll(dir, 0755)
 			_, err = os.Create(s.filepath)
 			if err != nil {
-				log.Fatal("Error: Cannot create data files. " + err.Error())
+				return errors.New("Error: Cannot create data files. " + err.Error())
 			}
 		}
 	}
@@ -39,7 +39,7 @@ func (s *Storage) Load() error {
 	byt, err := os.ReadFile(s.filepath)
 
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	err = json.Unmarshal(byt, &s.dates)
@@ -50,12 +50,11 @@ func (s *Storage) Load() error {
 	return nil
 }
 
-func (s *Storage) Add(tudate models.TuDate) error {
+func (s *Storage) Add(tuDate models.TuDate) error {
 	if !s.loaded {
 		s.Load()
 	}
-
-	s.dates = append(s.dates, tudate)
+	s.dates = append(s.dates, tuDate)
 	return s.write()
 
 }
@@ -67,7 +66,7 @@ func (s *Storage) Read() []models.TuDate {
 func (s *Storage) write() error {
 
 	if byt, err := json.MarshalIndent(s.dates, "", "    "); err != nil {
-		return err
+		return err //edge case, no tests
 	} else {
 		return os.WriteFile(s.filepath, byt, os.ModeAppend)
 	}
