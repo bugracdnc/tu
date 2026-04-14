@@ -15,7 +15,7 @@ func addNewDates(db db.Storage) {
 }
 
 func main() {
-	jsonFileDirPath := "data/"
+	jsonFileDirPath := "~/.config/tu/"
 	jsonFilePath := jsonFileDirPath + "data.db"
 	TuDateStorage := db.NewStorage(jsonFilePath)
 	err := TuDateStorage.Load()

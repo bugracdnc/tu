@@ -14,7 +14,7 @@ var rootCmd = &cobra.Command{
 	Use:   "tu",
 	Short: "Keep track of time until an event",
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd.Help()
+		printList(*storage)
 	},
 }
 
