@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"log"
 	"time"
 	"tu/cli"
 	"tu/db"
@@ -15,10 +17,14 @@ func addNewDates(db db.Storage) {
 }
 
 func main() {
-	jsonFileDirPath := "~/.config/tu/"
+	jsonFileDirPath, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal("Error: Cannot get user home directory")
+	}
+	jsonFileDirPath = jsonFileDirPath + "/.config/tu/"
 	jsonFilePath := jsonFileDirPath + "data.db"
 	TuDateStorage := db.NewStorage(jsonFilePath)
-	err := TuDateStorage.Load()
+	err = TuDateStorage.Load()
 	if err != nil {
 		panic("Error: Cannot read storage: " + err.Error())
 	}
