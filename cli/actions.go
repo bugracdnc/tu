@@ -27,9 +27,9 @@ func calculateUntilDate(date time.Time) (string, int) {
 	// Helper function for quick formatting and pluralization
 	format := func(val time.Duration, unit string) string {
 		if val == 1 {
-			return fmt.Sprintf("1 %s", unit) // Singular
+			return fmt.Sprintf("  1 %s", unit) // Singular
 		}
-		return fmt.Sprintf("%d %ss", val, unit) // Plural
+		return fmt.Sprintf("%3d %ss", val, unit) // Plural
 	}
 
 	// Check from largest to smallest.
