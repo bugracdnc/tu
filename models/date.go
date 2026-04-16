@@ -25,7 +25,7 @@ func NewTuDateFromString(dateStr string) (*TuDate, error) {
 		layoutStr = "2006-01-02"
 	}
 
-	parsedDate, err := time.Parse(layoutStr, dateStr)
+	parsedDate, err := time.ParseInLocation(layoutStr, dateStr, time.Local)
 	if err != nil {
 		return nil, err
 	} else {
