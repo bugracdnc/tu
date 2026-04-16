@@ -71,9 +71,9 @@ func printList(db db.Storage) {
 	for _, tuDate := range tuDates {
 		untilStr, toOrSince := calculateUntilDate(tuDate.Date)
 		if toOrSince < 0 {
-			fmt.Printf("\033[0;90m[Passed] \033[0;37m%s\033[0;90m \033[0;90mfor [\033[0;37m%s\033[0;90m] (since %s)\n", untilStr, tuDate.Name, formatDateString(tuDate.Date))
+			fmt.Printf("* \033[0;90m[Passed] \033[0;37m%s\033[0;90m \033[0;90mfor [\033[0;37m%s\033[0;90m] (since %s)\n", untilStr, tuDate.Name, formatDateString(tuDate.Date))
 		} else {
-			fmt.Printf("\033[0;37m%s \033[0;90mto [\033[0;37m%s\033[0;90m] (at %s)\n", untilStr, tuDate.Name, formatDateString(tuDate.Date))
+			fmt.Printf("* \033[0;37m%s \033[0;90mto [\033[0;37m%s\033[0;90m] (at %s)\n", untilStr, tuDate.Name, formatDateString(tuDate.Date))
 		}
 	}
 }
