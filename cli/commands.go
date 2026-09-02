@@ -9,6 +9,7 @@ import (
 )
 
 var storage *db.Storage
+var nameFlag string = ""
 
 var rootCmd = &cobra.Command{
 	Use:   "tu",
@@ -32,7 +33,7 @@ func init() {
 			Short:   "Track a date",
 			Example: "tu track 2026-05-22\ntu track 2026-05-22 16:13:22",
 			Run: func(cmd *cobra.Command, args []string) {
-				if err := addToList(storage, strings.Join(args, " ")); err != nil {
+				if err := addToList(storage, strings.Join(args, " "), nameFlag); err != nil {
 					log.Println("Error: ", err.Error())
 				}
 			},
@@ -47,7 +48,10 @@ func init() {
 		},
 	}
 
+	Commands[0].Flags().StringVarP(&nameFlag, "name", "n", "", "Name of the event")
+
 	for _, Command := range Commands {
+		
 		rootCmd.AddCommand(&Command)
 	}
 

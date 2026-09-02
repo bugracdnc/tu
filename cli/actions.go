@@ -78,10 +78,13 @@ func printList(db db.Storage) {
 	}
 }
 
-func addToList(db *db.Storage, arg string) error {
+func addToList(db *db.Storage, arg string, nameFlag string) error {
 	tudate, err := models.NewTuDateFromString(arg)
 	if err != nil {
 		return err
+	}
+	if nameFlag != "" {
+		tudate.Name = nameFlag
 	}
 	if err := db.Add(*tudate); err == nil {
 		log.Println("New date successfully added")
