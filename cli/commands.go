@@ -31,6 +31,7 @@ func init() {
 		{
 			Use:     "track",
 			Short:   "Track a date",
+			Aliases: []string{"add"},
 			Example: "tu track 2026-05-22\ntu track 2026-05-22 16:13:22",
 			Run: func(cmd *cobra.Command, args []string) {
 				if err := addToList(storage, strings.Join(args, " "), nameFlag); err != nil {
@@ -41,9 +42,28 @@ func init() {
 		{
 			Use:     "list",
 			Short:   "Show the list",
+			Aliases: []string{"ls","l"},
 			Example: "tu list",
 			Run: func(cmd *cobra.Command, args []string) {
 				printList(*storage)
+			},
+		},
+		{
+			Use:     "edit",
+			Short:   "Edit an item in the list",
+			Aliases: []string{"e"},
+			Example: "tu edit 0",
+			Run: func(cmd *cobra.Command, args []string) {
+				// TODO: Implement edit functionality
+			},
+		},
+		{
+			Use:     "remove",
+			Short:   "Remove an item from the list",
+			Aliases: []string{"rm"},
+			Example: "tu remove 0",
+			Run: func(cmd *cobra.Command, args []string) {
+				// TODO: Implement remove functionality
 			},
 		},
 	}
