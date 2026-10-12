@@ -24,18 +24,63 @@ To run it from anywhere, move the compiled tu binary to a directory in your `$PA
 
 ## Usage
 
-tu uses standard CLI commands to manage your tracked dates.
-
 ```bash
-# View available commands and help documentation
-tu --help
+# List upcoming dates (same as `tu list`)
+tu
 
-# List all currently tracked dates and the time remaining
-tu list
-
-# Track new dates
+# Track new dates, everything before the date is the name
+tu add "Summer holiday" 2027-07-01
+tu add Exam friday 9am
+tu add Birthday 22/05/1995 --repeat yearly
+tu add Standup 09:30 -r daily
 tu track "2026-12-31 23:59:59"
+
+# Listing
+tu list --all          # include dates that have passed
+tu list --past         # only dates that have passed
+tu list --within 2w    # only what's coming up in the next two weeks
+tu list --json         # machine readable output
+
+# Inspect, change and remove dates by ID prefix, name or part of a name
+tu show birthday
+tu edit exam --date "2026-10-20 10:00" --name "Final exam"
+tu edit birthday --repeat none
+tu rm 3f9a1c "Summer holiday"
+
+# Compact output for status bars and shell prompts
+tu next
+tu next -c 3
+
+# Remove every date that has passed
+tu clean --dry-run
+tu clean
+
+# Always show passed dates in the default list
+tu config show-past true
 ```
+
+### Date formats
+
+| Input | Meaning |
+| --- | --- |
+| `2026-05-22`, `22/05/2026`, `22.05.2026` | a whole day |
+| `2026-05-22 16:00`, `22/05/2026 16:00:30` | an exact time |
+| `today`, `tomorrow`, `friday`, `next mon` | a whole day (weekdays are always the upcoming one) |
+| `tomorrow 18:00`, `fri 9am` | an exact time on that day |
+| `18:00` | the next time the clock shows 18:00 |
+| `+3d`, `in 2 weeks`, `1y 2mo`, `1h30m`, `3 days ago` | relative to now |
+
+Whole-day dates count in calendar days, so they show as `today` all day long and only count as passed once the day is over.
+
+### Recurring dates
+
+Dates added with `--repeat daily|weekly|monthly|yearly` always show their next occurrence and never become passed. Monthly and yearly dates on days that don't exist in every month (the 31st, 29 February) fall on the last day of shorter months.
+
+### Storage
+
+Dates are stored in `~/.config/tu/data.db` (or `$XDG_CONFIG_HOME/tu/data.db`), settings in `config.json` next to it. Set `TU_DATA` to use a different data file. Colors are turned off when output is piped, when `NO_COLOR` is set, or with `--no-color`.
+
+Shell completion (including IDs of tracked dates) is available through `tu completion bash|zsh|fish`.
 
 ## Project Structure
 
