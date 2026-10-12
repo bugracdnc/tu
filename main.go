@@ -1,35 +1,36 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"os"
-	"time"
+	"path/filepath"
 	"tu/cli"
 	"tu/db"
-	"tu/models"
 )
 
-func addNewDates(db db.Storage) {
-	tudate1 := models.NewTuDateFromDate(time.Now())
-	db.Add(*tudate1)
-	tudate2 := models.NewTuDateFromDate(time.Now())
-	db.Add(*tudate2)
-}
-
 func main() {
-	jsonFileDirPath, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal("Error: Cannot get user home directory")
+	// TU_DATA points at an alternative data file, otherwise use ~/.config/tu/data.db
+	jsonFilePath := os.Getenv("TU_DATA")
+	if jsonFilePath == "" {
+		configDir, err := os.UserConfigDir()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: Cannot find user config directory")
+			os.Exit(1)
+		}
+		jsonFilePath = filepath.Join(configDir, "tu", "data.db")
 	}
-	jsonFileDirPath = jsonFileDirPath + "/.config/tu/"
-	jsonFilePath := jsonFileDirPath + "data.db"
+
 	TuDateStorage := db.NewStorage(jsonFilePath)
-	err = TuDateStorage.Load()
-	if err != nil {
-		panic("Error: Cannot read storage: " + err.Error())
+	if err := TuDateStorage.Load(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Cannot read storage:", err)
+		os.Exit(1)
 	}
 
-	//addNewDates(*TuDateStorage)
+	config, err := db.LoadConfig(filepath.Join(filepath.Dir(jsonFilePath), "config.json"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Cannot read config:", err)
+		os.Exit(1)
+	}
 
-	cli.Execute(TuDateStorage)
+	cli.Execute(TuDateStorage, config)
 }
