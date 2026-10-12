@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -103,5 +104,58 @@ func TestStorageRead(t *testing.T) {
 		if read != TestingStorage.dates[i] {
 			t.Errorf("what is read and exists are not matching")
 		}
+	}
+}
+
+func TestStorageFindUpdateRemove(t *testing.T) {
+	path := t.TempDir() + "/data.db"
+	s := NewStorage(path)
+	if err := s.Load(); err != nil {
+		t.Fatal(err)
+	}
+	exam := *models.NewTuDateFromDateWithName(time.Now(), "Final Exam")
+	midterm := *models.NewTuDateFromDateWithName(time.Now(), "Midterm exam")
+	s.Add(exam)
+	s.Add(midterm)
+
+	if d, err := s.Find(exam.UUID[:4]); err != nil || d.UUID != exam.UUID {
+		t.Errorf("find by id prefix: got %v %v", d, err)
+	}
+	if d, err := s.Find("final exam"); err != nil || d.UUID != exam.UUID {
+		t.Errorf("find by name: got %v %v", d, err)
+	}
+	if d, err := s.Find("mid"); err != nil || d.UUID != midterm.UUID {
+		t.Errorf("find by part of name: got %v %v", d, err)
+	}
+	if _, err := s.Find("exam"); err == nil {
+		t.Error("wanted ambiguity error")
+	}
+	if _, err := s.Find("nothing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("wanted ErrNotFound, got %v", err)
+	}
+
+	exam.Name = "Renamed"
+	if err := s.Update(exam); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.Remove(midterm.UUID); err != nil || n != 1 {
+		t.Errorf("remove: got %d %v", n, err)
+	}
+
+	reloaded := NewStorage(path)
+	if err := reloaded.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Read(); len(got) != 1 || got[0].Name != "Renamed" {
+		t.Errorf("after reload got %v", got)
+	}
+}
+
+func TestStorageLoad_CorruptFile(t *testing.T) {
+	path := t.TempDir() + "/data.db"
+	os.WriteFile(path, []byte("{not json"), 0644)
+
+	if err := NewStorage(path).Load(); err == nil {
+		t.Error("wanted error for corrupt data file")
 	}
 }
