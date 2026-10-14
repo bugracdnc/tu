@@ -76,9 +76,51 @@ Whole-day dates count in calendar days, so they show as `today` all day long and
 
 Dates added with `--repeat daily|weekly|monthly|yearly` always show their next occurrence and never become passed. Monthly and yearly dates on days that don't exist in every month (the 31st, 29 February) fall on the last day of shorter months.
 
+### Google Calendar
+
+`tu` can push your dates to Google Calendar and pull upcoming events (birthdays, holidays, appointments) from it.
+
+**One-time setup.** Google only lets apps in that have their own OAuth client, so create one (it's free):
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create or pick a project.
+2. *APIs & Services → Library*: enable the **Google Calendar API**.
+3. *APIs & Services → OAuth consent screen*: choose **External** and add your own Google account under **Test users**.
+   While the app is in *Testing*, Google expires the login after 7 days. To avoid logging in again every week, click **Publish app** on the same page. It doesn't need verification for personal use; Google just shows an "unverified app" warning you can click through.
+4. *APIs & Services → Credentials → Create credentials → OAuth client ID*, type **Desktop app**, and download the JSON file.
+
+```bash
+tu google login --client-file ~/Downloads/client_secret_....json
+```
+
+A browser opens to sign in with Google, then redirects back to `tu`. If you sign in on another device, or the browser lands on a page it can't reach, copy that page's address and paste it into the terminal instead (`--no-browser` only prints the link). The client is remembered, so later logins are just `tu google login`.
+
+```bash
+tu sync                       # push local changes, pull upcoming events
+tu google                     # connection and sync status
+tu google calendars           # your calendars and which ones are synced
+tu add Standup 09:30 -r daily --local   # never push this one
+tu rm "Republic Day"          # hide a pulled event, it won't be pulled again
+tu rm exam --keep-google      # stop tracking here, but leave it in Google
+tu google logout
+```
+
+- **Pushing:** upcoming dates you add here are created in your primary calendar, either all-day or at their time (as one-hour events). Repeating dates repeat in Google too. Changes from `tu edit` and removals from `tu rm` are sent right away. If that fails (e.g. offline), the next `tu sync` sends them. Edits made in Google to dates created here are taken over on sync. `tu clean` never deletes anything in Google.
+- **Pulling:** `tu sync` pulls the next 25 events within a year from every calendar shown in Google Calendar, including Birthdays and any holiday calendars you've added there. They're marked with their calendar's name and replaced on every sync. Edit or delete them in Google itself.
+- **No duplicates:** events that came from `tu` aren't pulled back. An event with the same name at the same time as one tracked here is only shown once, and isn't pushed again if it's already in Google.
+
+| Setting | Default |
+| --- | --- |
+| `google-calendar` | `primary`, the calendar new dates go to |
+| `google-calendars` | the calendars shown in Google Calendar; comma-separated IDs or names to pull from |
+| `google-count` | `25` upcoming events to pull |
+| `google-days` | `365` days ahead to look |
+| `google-auto-push` | `true`; send changes right after `add`/`edit`/`rm` |
+
+To keep pulled events fresh, run `tu sync` from cron (or Termux's `termux-job-scheduler`).
+
 ### Storage
 
-Dates are stored in `~/.config/tu/data.db` (or `$XDG_CONFIG_HOME/tu/data.db`), settings in `config.json` next to it. Set `TU_DATA` to use a different data file. Colors are turned off when output is piped, when `NO_COLOR` is set, or with `--no-color`.
+Dates are stored in `~/.config/tu/data.db` (or `$XDG_CONFIG_HOME/tu/data.db`), settings in `config.json` next to it, and the Google login and sync state in `google.json` (readable only by you). Set `TU_DATA` to use a different data file. Colors are turned off when output is piped, when `NO_COLOR` is set, or with `--no-color`.
 
 Shell completion (including IDs of tracked dates) is available through `tu completion bash|zsh|fish`.
 
@@ -91,5 +133,7 @@ The codebase is organized to keep responsibilities strictly separated:
 - `cli/:` Contains the command-line interface logic. It receives the storage dependencies and handles user input/output without needing to know how the underlying data is stored.
 
 - `db/:` The storage manager. It handles the internal logic for reading from and writing to the local JSON file.
+
+- `gcal/:` Google Calendar support: the OAuth login, a small client for the Calendar API, and the sync logic.
 
 - `models/:` Defines the core data structures (like the tracked date format) used across the application to ensure consistency.

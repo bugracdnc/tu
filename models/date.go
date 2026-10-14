@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -43,6 +45,38 @@ type TuDate struct {
 	Date   time.Time `json:"date"`
 	AllDay bool      `json:"all_day,omitempty"`
 	Repeat Repeat    `json:"repeat,omitempty"`
+
+	// LocalOnly dates are never pushed to Google Calendar.
+	LocalOnly bool       `json:"local_only,omitempty"`
+	Google    GoogleLink `json:"google,omitzero"`
+}
+
+// GoogleLink ties a date to an event in Google Calendar. Dates created in tu
+// are pushed and tu stays in charge of them; pulled dates mirror an event that
+// lives in Google and are replaced on every sync.
+type GoogleLink struct {
+	ID           string `json:"id"`
+	Calendar     string `json:"calendar"`
+	CalendarName string `json:"calendar_name,omitempty"`
+	// Series is the recurring event a pulled occurrence belongs to.
+	Series string `json:"series,omitempty"`
+	Pulled bool   `json:"pulled,omitempty"`
+	// Hash of the content last sent to or received from Google, used to
+	// notice which side changed since.
+	Hash string `json:"hash,omitempty"`
+}
+
+func (t TuDate) Linked() bool { return t.Google.ID != "" }
+func (t TuDate) Pulled() bool { return t.Google.Pulled }
+
+// ContentHash summarises the fields that are kept in sync with Google.
+func (t TuDate) ContentHash() string {
+	date := t.Date.UTC().Format(time.RFC3339)
+	if t.AllDay {
+		date = t.Date.Format(time.DateOnly)
+	}
+	sum := sha256.Sum256([]byte(strings.Join([]string{t.Name, date, fmt.Sprint(t.AllDay), string(t.Repeat)}, "\x00")))
+	return hex.EncodeToString(sum[:8])
 }
 
 // ShortID is the prefix of the UUID shown to users for referencing a date.

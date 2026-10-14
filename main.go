@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"tu/cli"
 	"tu/db"
+	"tu/gcal"
 )
 
 func main() {
@@ -32,5 +33,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	cli.Execute(TuDateStorage, config)
+	googleState, err := gcal.LoadState(filepath.Join(filepath.Dir(jsonFilePath), "google.json"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Cannot read Google state:", err)
+		os.Exit(1)
+	}
+
+	cli.Execute(TuDateStorage, config, googleState)
 }

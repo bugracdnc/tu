@@ -134,6 +134,15 @@ func (s *Storage) Update(tuDate models.TuDate) error {
 	return s.write()
 }
 
+// ReplaceAll swaps the whole set of dates, e.g. after syncing.
+func (s *Storage) ReplaceAll(dates []models.TuDate) error {
+	if err := s.ensureLoaded(); err != nil {
+		return err
+	}
+	s.dates = slices.Clone(dates)
+	return s.write()
+}
+
 // Remove deletes the dates with the given IDs and returns how many were removed.
 func (s *Storage) Remove(ids ...string) (int, error) {
 	if err := s.ensureLoaded(); err != nil {

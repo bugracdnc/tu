@@ -1,14 +1,17 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"tu/db"
+	"tu/gcal"
 	"tu/models"
 )
 
@@ -64,6 +67,7 @@ type jsonDate struct {
 	Date         time.Time `json:"date"`
 	AllDay       bool      `json:"all_day"`
 	Repeat       string    `json:"repeat,omitempty"`
+	Calendar     string    `json:"calendar,omitempty"`
 	Past         bool      `json:"past"`
 	SecondsUntil int64     `json:"seconds_until"`
 }
@@ -85,6 +89,7 @@ func printList(storage *db.Storage, config *db.Config, opts listOptions) error {
 				Date:         occ,
 				AllDay:       d.AllDay,
 				Repeat:       string(d.Repeat),
+				Calendar:     d.Google.CalendarName,
 				Past:         d.IsPast(at),
 				SecondsUntil: int64(occ.Sub(at) / time.Second),
 			}
@@ -144,7 +149,7 @@ func splitNameDate(args []string, at time.Time) (string, time.Time, bool, error)
 	return "", time.Time{}, false, lastErr
 }
 
-func addToList(storage *db.Storage, args []string, name string, repeat string) error {
+func addToList(storage *db.Storage, args []string, name string, repeat string, localOnly bool) error {
 	at := now()
 
 	var date time.Time
@@ -167,6 +172,7 @@ func addToList(storage *db.Storage, args []string, name string, repeat string) e
 	tuDate := models.NewTuDateFromDateWithName(date, strings.TrimSpace(name))
 	tuDate.AllDay = allDay
 	tuDate.Repeat = rep
+	tuDate.LocalOnly = localOnly
 
 	if err := storage.Add(*tuDate); err != nil {
 		return err
@@ -176,7 +182,9 @@ func addToList(storage *db.Storage, args []string, name string, repeat string) e
 	return nil
 }
 
-func removeFromList(storage *db.Storage, refs []string) error {
+// removeFromList removes dates. Pushed ones are deleted from Google as well
+// unless keepGoogle is set, pulled ones are not pulled again.
+func removeFromList(storage *db.Storage, gstate *gcal.State, refs []string, keepGoogle bool) error {
 	ids := []string{}
 	removed := []models.TuDate{}
 	for _, ref := range refs {
@@ -189,6 +197,19 @@ func removeFromList(storage *db.Storage, refs []string) error {
 			removed = append(removed, d)
 		}
 	}
+	for _, d := range removed {
+		switch {
+		case d.Pulled():
+			gstate.Ignore(cmp.Or(d.Google.Series, d.Google.ID))
+		case d.Linked() && keepGoogle:
+			gstate.Ignore(d.Google.ID)
+		case d.Linked():
+			gstate.Forget(d.Google.ID, d.Google.Calendar)
+		}
+	}
+	if err := gstate.Save(); err != nil {
+		return err
+	}
 	if _, err := storage.Remove(ids...); err != nil {
 		return err
 	}
@@ -199,18 +220,22 @@ func removeFromList(storage *db.Storage, refs []string) error {
 }
 
 type editOptions struct {
-	name   string
-	date   string
-	repeat string
+	name      string
+	date      string
+	repeat    string
+	localOnly bool
 }
 
-func editDate(storage *db.Storage, ref string, opts editOptions, changed func(string) bool) error {
+func editDate(storage *db.Storage, gstate *gcal.State, ref string, opts editOptions, changed func(string) bool) error {
 	d, err := storage.Find(ref)
 	if err != nil {
 		return err
 	}
-	if !changed("name") && !changed("date") && !changed("repeat") {
-		return errors.New("nothing to change, use --name, --date or --repeat")
+	if !changed("name") && !changed("date") && !changed("repeat") && !changed("local") {
+		return errors.New("nothing to change, use --name, --date, --repeat or --local")
+	}
+	if d.Pulled() {
+		return fmt.Errorf("%s comes from Google Calendar (%s), change it there", d.DisplayName(), d.Google.CalendarName)
 	}
 
 	if changed("name") {
@@ -226,6 +251,17 @@ func editDate(storage *db.Storage, ref string, opts editOptions, changed func(st
 	if changed("repeat") {
 		if d.Repeat, err = models.ParseRepeat(opts.repeat); err != nil {
 			return err
+		}
+	}
+
+	if changed("local") {
+		d.LocalOnly = opts.localOnly
+		if d.LocalOnly && d.Linked() {
+			gstate.Forget(d.Google.ID, d.Google.Calendar)
+			d.Google = models.GoogleLink{}
+			if err := gstate.Save(); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -250,6 +286,14 @@ func showDate(storage *db.Storage, ref string) error {
 	}
 	row("Name", paint(colorWhite, d.DisplayName()))
 	row("ID", d.UUID)
+	switch {
+	case d.Pulled():
+		row("Calendar", d.Google.CalendarName+" (Google)")
+	case d.Linked():
+		row("Google", "in "+d.Google.Calendar)
+	case d.LocalOnly:
+		row("Google", "local only")
+	}
 	if d.Repeat != models.RepeatNone {
 		row("Repeats", string(d.Repeat)+", since "+formatDateString(d.Date, d.AllDay))
 		row("Next", formatDateLong(occ, d.AllDay))
@@ -322,35 +366,129 @@ func cleanPast(storage *db.Storage, dryRun bool) error {
 	return nil
 }
 
-var configKeys = []string{"show-past"}
+type setting struct {
+	key, help string
+	values    []string
+	get       func(*db.Config) string
+	set       func(*db.Config, string) error
+}
+
+var settings = []setting{
+	{
+		key: "show-past", help: "include passed dates in the default list (true/false)",
+		values: []string{"true", "false"},
+		get:    func(c *db.Config) string { return fmt.Sprint(c.ShowPast) },
+		set: func(c *db.Config, v string) (err error) {
+			c.ShowPast, err = parseBool(v)
+			return err
+		},
+	},
+	{
+		key: "google-calendar", help: "Google calendar new dates are added to (ID or name, default primary)",
+		get: func(c *db.Config) string { return c.PushCalendar() },
+		set: func(c *db.Config, v string) error {
+			c.GoogleCalendar = strings.TrimSpace(v)
+			return nil
+		},
+	},
+	{
+		key: "google-calendars", help: "comma separated Google calendars to pull from (default: the ones shown in Google Calendar)",
+		get: func(c *db.Config) string {
+			if len(c.GoogleCalendars) == 0 {
+				return "(shown in Google Calendar)"
+			}
+			return strings.Join(c.GoogleCalendars, ",")
+		},
+		set: func(c *db.Config, v string) error {
+			c.GoogleCalendars = nil
+			for _, cal := range strings.Split(v, ",") {
+				if cal = strings.TrimSpace(cal); cal != "" {
+					c.GoogleCalendars = append(c.GoogleCalendars, cal)
+				}
+			}
+			return nil
+		},
+	},
+	{
+		key: "google-count", help: "how many upcoming Google events to pull (default 25)",
+		get: func(c *db.Config) string { return fmt.Sprint(c.PullCount()) },
+		set: func(c *db.Config, v string) (err error) {
+			c.GoogleCount, err = parsePositive(v)
+			return err
+		},
+	},
+	{
+		key: "google-days", help: "how many days ahead to pull Google events (default 365)",
+		get: func(c *db.Config) string { return fmt.Sprint(c.PullDays()) },
+		set: func(c *db.Config, v string) (err error) {
+			c.GoogleDays, err = parsePositive(v)
+			return err
+		},
+	},
+	{
+		key: "google-auto-push", help: "send added, changed and removed dates to Google right away (true/false)",
+		values: []string{"true", "false"},
+		get:    func(c *db.Config) string { return fmt.Sprint(c.AutoPush()) },
+		set: func(c *db.Config, v string) error {
+			b, err := parseBool(v)
+			c.GoogleAutoPush = &b
+			return err
+		},
+	},
+}
+
+func parseBool(v string) (bool, error) {
+	switch strings.ToLower(v) {
+	case "true", "on", "yes", "1":
+		return true, nil
+	case "false", "off", "no", "0":
+		return false, nil
+	}
+	return false, fmt.Errorf("expected true or false, got %q", v)
+}
+
+func parsePositive(v string) (int, error) {
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("expected a positive number, got %q", v)
+	}
+	return n, nil
+}
+
+func findSetting(key string) (setting, error) {
+	i := slices.IndexFunc(settings, func(s setting) bool { return s.key == key })
+	if i < 0 {
+		keys := make([]string, len(settings))
+		for i, s := range settings {
+			keys[i] = s.key
+		}
+		return setting{}, fmt.Errorf("unknown setting %q (available: %s)", key, strings.Join(keys, ", "))
+	}
+	return settings[i], nil
+}
 
 func configure(config *db.Config, args []string) error {
 	if len(args) == 0 {
-		fmt.Printf("show-past = %t\n", config.ShowPast)
+		for _, s := range settings {
+			fmt.Printf("%s = %s\n", s.key, s.get(config))
+		}
 		return nil
 	}
 
-	switch args[0] {
-	case "show-past":
-		if len(args) == 1 {
-			fmt.Println(config.ShowPast)
-			return nil
-		}
-		switch strings.ToLower(args[1]) {
-		case "true", "on", "yes", "1":
-			config.ShowPast = true
-		case "false", "off", "no", "0":
-			config.ShowPast = false
-		default:
-			return fmt.Errorf("show-past must be true or false, got %q", args[1])
-		}
-	default:
-		return fmt.Errorf("unknown setting %q (available: %s)", args[0], strings.Join(configKeys, ", "))
+	s, err := findSetting(args[0])
+	if err != nil {
+		return err
 	}
-
+	if len(args) == 1 {
+		fmt.Println(s.get(config))
+		return nil
+	}
+	if err := s.set(config, args[1]); err != nil {
+		return fmt.Errorf("%s: %w", s.key, err)
+	}
 	if err := config.Save(); err != nil {
 		return err
 	}
-	fmt.Printf("%s = %s\n", args[0], args[1])
+	fmt.Printf("%s = %s\n", s.key, s.get(config))
 	return nil
 }

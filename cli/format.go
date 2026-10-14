@@ -208,5 +208,8 @@ func formatLine(tuDate models.TuDate, now time.Time) string {
 	if tuDate.Repeat != models.RepeatNone {
 		line += " " + paint(colorCyan, "↻ "+string(tuDate.Repeat))
 	}
+	if tuDate.Pulled() {
+		line += " " + paint(colorGray, "· "+tuDate.Google.CalendarName)
+	}
 	return line
 }

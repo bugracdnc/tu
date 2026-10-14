@@ -5,12 +5,14 @@ import (
 	"os"
 	"strings"
 	"tu/db"
+	"tu/gcal"
 
 	"github.com/spf13/cobra"
 )
 
 var storage *db.Storage
 var config *db.Config
+var gstate *gcal.State
 
 var noColor bool
 
@@ -31,9 +33,10 @@ Running tu without a command lists your upcoming dates.`,
 	},
 }
 
-func Execute(_storage *db.Storage, _config *db.Config) {
+func Execute(_storage *db.Storage, _config *db.Config, _gstate *gcal.State) {
 	storage = _storage
 	config = _config
+	gstate = _gstate
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
@@ -77,6 +80,7 @@ func init() {
 	addListFlags(listCmd, &listOpts)
 
 	var addName, addRepeat string
+	var addLocal bool
 	addCmd := &cobra.Command{
 		Use:     "add [name] <date>",
 		Aliases: []string{"track", "new"},
@@ -93,28 +97,42 @@ Dates can be written as:
 		Example: `tu add "Summer holiday" 2026-07-01
 tu add Exam friday 9am
 tu add Birthday 22/05/1995 --repeat yearly
-tu add Standup 09:30 -r daily
+tu add Standup 09:30 -r daily --local
 tu track 2026-05-22 16:13:22`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return addToList(storage, args, addName, addRepeat)
+			if err := addToList(storage, args, addName, addRepeat, addLocal); err != nil {
+				return err
+			}
+			autoPush(storage, config, gstate)
+			return nil
 		},
 	}
 	addCmd.Flags().StringVarP(&addName, "name", "n", "", "name of the date (otherwise taken from the arguments)")
 	addCmd.Flags().StringVarP(&addRepeat, "repeat", "r", "", "repeat daily, weekly, monthly or yearly")
+	addCmd.Flags().BoolVarP(&addLocal, "local", "l", false, "never push this date to Google Calendar")
 
+	var keepGoogle bool
 	rmCmd := &cobra.Command{
-		Use:               "rm <id|name>...",
-		Aliases:           []string{"remove", "delete", "del"},
-		Short:             "Stop tracking dates",
-		Long:              "Stop tracking dates. A date can be referenced by (a prefix of) its ID, its name, or a unique part of its name.",
+		Use:     "rm <id|name>...",
+		Aliases: []string{"remove", "delete", "del"},
+		Short:   "Stop tracking dates",
+		Long: `Stop tracking dates. A date can be referenced by (a prefix of) its ID, its name, or a unique part of its name.
+
+Dates that were pushed to Google Calendar are deleted there too, unless --keep-google is given.
+Dates pulled from Google are only hidden here and won't be pulled again.`,
 		Example:           "tu rm 3f9a1c\ntu rm \"Summer holiday\"\ntu rm exam birthday",
 		Args:              cobra.MinimumNArgs(1),
 		ValidArgsFunction: completeRefs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return removeFromList(storage, args)
+			if err := removeFromList(storage, gstate, args, keepGoogle); err != nil {
+				return err
+			}
+			autoPush(storage, config, gstate)
+			return nil
 		},
 	}
+	rmCmd.Flags().BoolVar(&keepGoogle, "keep-google", false, "keep the event in Google Calendar")
 
 	var editOpts editOptions
 	editCmd := &cobra.Command{
@@ -125,12 +143,17 @@ tu track 2026-05-22 16:13:22`,
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeRefs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return editDate(storage, args[0], editOpts, cmd.Flags().Changed)
+			if err := editDate(storage, gstate, args[0], editOpts, cmd.Flags().Changed); err != nil {
+				return err
+			}
+			autoPush(storage, config, gstate)
+			return nil
 		},
 	}
 	editCmd.Flags().StringVarP(&editOpts.name, "name", "n", "", "new name")
 	editCmd.Flags().StringVarP(&editOpts.date, "date", "d", "", "new date")
 	editCmd.Flags().StringVarP(&editOpts.repeat, "repeat", "r", "", "repeat daily, weekly, monthly, yearly or none")
+	editCmd.Flags().BoolVarP(&editOpts.localOnly, "local", "l", false, "keep out of Google Calendar (--local=false to push it)")
 
 	showCmd := &cobra.Command{
 		Use:               "show <id|name>",
@@ -171,24 +194,113 @@ tu track 2026-05-22 16:13:22`,
 	cleanCmd.Flags().BoolVar(&dryRun, "dry-run", false, "only show what would be removed")
 
 	configCmd := &cobra.Command{
-		Use:   "config [key] [value]",
-		Short: "Show or change settings",
-		Long: `Show or change settings.
-
-Settings:
-  show-past   include passed dates in the default list (true/false)`,
-		Example: "tu config\ntu config show-past true",
+		Use:     "config [key] [value]",
+		Short:   "Show or change settings",
+		Long:    "Show or change settings.\n\nSettings:\n" + settingsHelp(),
+		Example: "tu config\ntu config show-past true\ntu config google-calendars \"primary,Holidays in Turkey\"",
 		Args:    cobra.MaximumNArgs(2),
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			if len(args) == 0 {
-				return configKeys, cobra.ShellCompDirectiveNoFileComp
+				var keys []string
+				for _, s := range settings {
+					keys = append(keys, s.key+"\t"+s.help)
+				}
+				return keys, cobra.ShellCompDirectiveNoFileComp
 			}
-			return []string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp
+			if s, err := findSetting(args[0]); err == nil && len(args) == 1 {
+				return s.values, cobra.ShellCompDirectiveNoFileComp
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return configure(config, args)
 		},
 	}
 
-	rootCmd.AddCommand(listCmd, addCmd, rmCmd, editCmd, showCmd, nextCmd, cleanCmd, configCmd)
+	syncCmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Sync with Google Calendar",
+		Long: `Send new, changed and removed dates to Google Calendar and pull the upcoming
+events from it (birthdays, holidays and anything else in your calendars).
+
+Pulled events replace the ones from the previous sync, so they always mirror
+what's upcoming in Google. Events that are already tracked here are not
+pulled twice.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return syncGoogle(storage, config, gstate)
+		},
+	}
+
+	googleCmd := &cobra.Command{
+		Use:     "google",
+		Aliases: []string{"gcal"},
+		Short:   "Connect to Google Calendar",
+		Long:    "Connect to Google Calendar, then use `tu sync` to push and pull dates.\n\n" + setupHelp,
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return googleStatus(storage, config, gstate)
+		},
+	}
+
+	var loginOpts loginOptions
+	loginCmd := &cobra.Command{
+		Use:   "login",
+		Short: "Allow tu to use your Google Calendar",
+		Long: `Allow tu to use your Google Calendar.
+
+A browser opens to sign in with Google. When it can't send you back to tu by
+itself (e.g. you signed in on another device), copy the address the browser
+ends up on and paste it into the terminal.
+
+` + setupHelp,
+		Example: "tu google login --client-file ~/Downloads/client_secret.json\ntu google login --no-browser",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return googleLogin(gstate, loginOpts)
+		},
+	}
+	loginCmd.Flags().StringVar(&loginOpts.clientFile, "client-file", "", "OAuth client JSON downloaded from the Google Cloud console")
+	loginCmd.Flags().StringVar(&loginOpts.clientID, "client-id", "", "OAuth client ID")
+	loginCmd.Flags().StringVar(&loginOpts.clientSecret, "client-secret", "", "OAuth client secret")
+	loginCmd.Flags().BoolVar(&loginOpts.noBrowser, "no-browser", false, "only print the address to open")
+
+	googleCmd.AddCommand(
+		loginCmd,
+		&cobra.Command{
+			Use:   "logout",
+			Short: "Disconnect from Google Calendar",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return googleLogout(gstate)
+			},
+		},
+		&cobra.Command{
+			Use:   "status",
+			Short: "Show the connection and sync state",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return googleStatus(storage, config, gstate)
+			},
+		},
+		&cobra.Command{
+			Use:     "calendars",
+			Aliases: []string{"cals"},
+			Short:   "List your calendars and which ones are synced",
+			Args:    cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return googleCalendars(config, gstate)
+			},
+		},
+	)
+
+	rootCmd.AddCommand(listCmd, addCmd, rmCmd, editCmd, showCmd, nextCmd, cleanCmd, configCmd, syncCmd, googleCmd)
+}
+
+func settingsHelp() string {
+	var b strings.Builder
+	for _, s := range settings {
+		fmt.Fprintf(&b, "  %-18s %s\n", s.key, s.help)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
