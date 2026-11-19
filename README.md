@@ -1,6 +1,23 @@
 # tu - Time Until Tracker
 
+[![Tests](https://github.com/bugracdnc/tu/actions/workflows/test.yml/badge.svg)](https://github.com/bugracdnc/tu/actions/workflows/test.yml)
+
 A lightweight, terminal-based countdown tracker written in Go. `tu` allows you to save target dates and track the time remaining until they occur, entirely from the command line.
+
+```console
+$ tu add Exam friday 9am
+$ tu add Birthday 22/05/1995 --repeat yearly
+$ tu
+* be47e6  20 hours to [Exam] (at 20/11/2026 09:00)
+* 7b8af9  21 hours to [Standup] (at 20/11/2026 09:30) ↻ daily
+* 4a238b  43 days to [New year] (at 01/01/2027)
+* 17412d 184 days to [Birthday] (at 22/05/2027) ↻ yearly
+* 2ab5f0 224 days to [Summer holiday] (at 01/07/2027)
+
+$ tu next -c 2        # compact, for status bars and prompts
+Exam: 20 hours
+Standup: 21 hours
+```
 
 ## Features
 
